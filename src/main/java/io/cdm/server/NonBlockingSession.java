@@ -142,7 +142,8 @@ public class NonBlockingSession implements Session {
             }
 
             try {
-                if(initCount > 1){
+                if((type == ServerParse.DELETE || type == ServerParse.INSERT
+                    || type == ServerParse.UPDATE)&&initCount >= 1&&target.get(nodes[0])==null){
                     checkDistriTransaxAndExecute(rrs,1,autocommit);
                 }else{
                     singleNodeHandler.execute();
@@ -159,7 +160,9 @@ public class NonBlockingSession implements Session {
                 multiNodeHandler.setPrepared(true);
             }
             try {
-                if(((type == ServerParse.DELETE || type == ServerParse.INSERT || type == ServerParse.UPDATE) && !rrs.isGlobalTable() && nodes.length > 1)||initCount > 1) {
+              //多个分片节点 是执行的DML  然后不是全局表 节点个数大于1 或者 target里面大于等于1 (保证除DQL语句只能执行一个执行全局表)
+              if ((type == ServerParse.DELETE || type == ServerParse.INSERT
+                  || type == ServerParse.UPDATE)&&((!rrs.isGlobalTable()&& nodes.length > 1)|| (initCount >= 1))) {
                     checkDistriTransaxAndExecute(rrs,2,autocommit);
                 } else {
                     multiNodeHandler.execute();
@@ -178,9 +181,16 @@ public class NonBlockingSession implements Session {
     private void checkDistriTransaxAndExecute(RouteResultset rrs, int type,boolean autocommit) throws Exception {
         switch(CDMServer.getInstance().getConfig().getSystem().getHandleDistributedTransactions()) {
             case 1:
-                source.writeErrMessage(ErrorCode.ER_NOT_ALLOWED_COMMAND, "Distributed transaction is disabled!");
+                RouteResultsetNode preResultsetNode = null;
+                if(target.size()>0){
+                    preResultsetNode = (RouteResultsetNode)target.keySet().toArray()[0];
+                }
+                String errorMes = "Distributed transaction is disabled!" + " error sql is "+
+                    (preResultsetNode == null? rrs.getStatement():preResultsetNode.getStatement());
+                LOGGER.error(errorMes);
+                source.writeErrMessage(ErrorCode.ER_NOT_ALLOWED_COMMAND,errorMes);
                 if(!autocommit){
-                    source.setTxInterrupt("Distributed transaction is disabled!");
+                    source.setTxInterrupt(errorMes);
                 }
                 break;
             case 2:
